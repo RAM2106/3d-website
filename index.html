@@ -3201,6 +3201,7 @@ function buildLeafFall() {
   const rnd = mulberry32(404), list = [];
   for (let i = 0; i < N; i++) list.push({
     x: (rnd() - .5) * 2 * LEAF_R, z: (rnd() - .5) * 2 * LEAF_R, y: rnd() * 26,
+    vx: 0, vz: 0,
     fall: .5 + rnd() * .9,
     sway: .45 + rnd() * 1.5, swayPh: rnd() * TAU, swayAmp: .30 + rnd() * .95,
     spin: (rnd() - .5) * 2.6, roll: rnd() * TAU, rollSp: .5 + rnd() * 2.0,
@@ -3211,7 +3212,7 @@ function buildLeafFall() {
 }
 const LEAF_M = new THREE.Matrix4(), LEAF_Q = new THREE.Quaternion();
 const LEAF_E = new THREE.Euler(), LEAF_P = new THREE.Vector3(), LEAF_S = new THREE.Vector3();
-const LEAF_F = new THREE.Vector3();
+const LEAF_F = new THREE.Vector3(), LEAF_PROJ = new THREE.Vector3();
 function updateLeaves(dt) {
   const LV = WORLD.leaves; if (!LV) return;
   const cy = camera.position.y, L = LV.list;
@@ -3237,15 +3238,36 @@ function updateLeaves(dt) {
       l.x = fx + Math.cos(a) * r;
       l.z = fz + Math.sin(a) * r;
     }
+    l.x += l.vx * dt;
+    l.z += l.vz * dt;
+    l.vx *= (1 - Math.min(1, dt * 2.0));
+    l.vz *= (1 - Math.min(1, dt * 2.0));
+
     /* the far wrap is a backstop for a rig that has walked away from its own
        leaves — it sits well outside the fog, so nothing is seen to jump */
     const cx = camera.position.x, cz = camera.position.z;
     if (l.x - cx > LEAF_R) l.x -= 2 * LEAF_R; else if (l.x - cx < -LEAF_R) l.x += 2 * LEAF_R;
     if (l.z - cz > LEAF_R) l.z -= 2 * LEAF_R; else if (l.z - cz < -LEAF_R) l.z += 2 * LEAF_R;
+
     /* the side-slip of a leaf shedding air off one edge, then the other */
     const sw = Math.sin(clock * l.sway + l.swayPh);
     LEAF_P.set(l.x + sw * l.swayAmp, l.y,
                l.z + Math.cos(clock * l.sway * .7 + l.swayPh) * l.swayAmp * .6);
+
+    LEAF_PROJ.copy(LEAF_P).project(camera);
+    if (LEAF_PROJ.z > -1.0 && LEAF_PROJ.z < 1.0) {
+      const dx = LEAF_PROJ.x - RIG.tmx;
+      const dy = LEAF_PROJ.y - RIG.tmy;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < 0.05) {
+        const force = (0.05 - distSq) * 120.0;
+        l.vx += dx * force * dt;
+        l.vz += dy * force * dt;
+        l.rollSp += dx * force * dt * 0.5;
+        l.spin += dy * force * dt * 0.5;
+      }
+    }
+
     LEAF_E.set(l.roll, l.tilt, sw * .55);
     LEAF_Q.setFromEuler(LEAF_E);
     LEAF_S.setScalar(l.s);
